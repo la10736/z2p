@@ -16,6 +16,6 @@ async fn greet(req: Request<()>) -> tide::Result {
     let message = req
         .param::<String>("name")
         .map(|name| format!("Hello, {}!", name))
-        .unwrap_or(hello().to_owned());
+        .unwrap_or_else(|_| hello().to_owned());
     Ok(message.into())
 }
