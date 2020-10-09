@@ -1,4 +1,3 @@
-
 use z2p::run;
 
 #[cfg(not(tarpaulin_include))]
