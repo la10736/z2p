@@ -1,13 +1,12 @@
-pub fn hello() -> &'static str {
-    "Hello, world!"
+use tide::Request;
+
+pub async fn run() -> tide::Result<()> {
+    let mut app = tide::new();
+    app.at("/health_check").get(health_check);
+    app.listen("127.0.0.1:8080").await?;
+    Ok(())
 }
 
-#[cfg(test)]
-mod test_super {
-    use super::*;
-
-    #[test]
-    fn test_hello() {
-        assert_eq!("Hello, world!", hello());
-    }
+pub(crate) async fn health_check(_req: Request<()>) -> tide::Result {
+    Ok("".into())
 }
