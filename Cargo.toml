@@ -1,8 +1,8 @@
 [package]
-name = "z2p"
-version = "0.1.0"
 authors = ["michele <michele.damico@gmail.com>"]
 edition = "2018"
+name = "z2p"
+version = "0.1.0"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -10,9 +10,14 @@ edition = "2018"
 path = "src/lib.rs"
 
 [[bin]]
-path = "src/main.rs"
 name = "app"
+path = "src/main.rs"
 
 [dependencies]
+async-std = {version = "1.6.3", features = ["attributes"]}
 tide = "0.13.0"
-async-std = { version = "1.6.3", features = ["attributes"] }
+serde = "1.0.116"
+
+[dev-dependencies]
+surf = "2.0.0"
+rstest = "0.6.4"
