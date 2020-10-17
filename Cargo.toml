@@ -15,9 +15,11 @@ path = "src/main.rs"
 
 [dependencies]
 async-std = {version = "1.6.3", features = ["attributes"]}
-tide = "0.13.0"
+mongodb = {version = "1.1.0", default-features = false, features = ["async-std-runtime"]}
 serde = "1.0.116"
+tide = "0.13.0"
+config = "0.10.1"
 
 [dev-dependencies]
-surf = "2.0.0"
 rstest = "0.6.4"
+surf = "2.0.0"
