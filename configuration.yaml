@@ -1,8 +1,8 @@
 application_host: 127.0.0.1
 application_port: 8000
 database:
-  host: "localhost"
-  port: 5432
-  username: "postgres"
-  password: "password"
-  database_name: "newsletter"
+  host: localhost
+  port: 27017
+  username: mongo
+  password: password
+  name: chess

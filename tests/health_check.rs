@@ -1,5 +1,5 @@
-use std::net::SocketAddr;
 use rstest::rstest;
+use std::net::SocketAddr;
 
 mod utils;
 
