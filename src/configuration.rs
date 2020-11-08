@@ -1,11 +1,11 @@
-#[derive(serde::Deserialize, Default)]
+#[derive(serde::Deserialize, Default, Clone, Debug)]
 pub struct Settings {
     pub database: DatabaseSettings,
     pub application_host: String,
     pub application_port: u16,
 }
 
-#[derive(serde::Deserialize, Default)]
+#[derive(serde::Deserialize, Default, Clone, Debug)]
 pub struct DatabaseSettings {
     pub username: String,
     pub password: String,

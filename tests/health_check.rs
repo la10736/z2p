@@ -1,13 +1,12 @@
 use rstest::rstest;
-use std::net::SocketAddr;
 
-mod utils;
+pub mod utils;
 
-use utils::app;
+use utils::{app, App};
 
 #[rstest]
-async fn health_check_works(app: SocketAddr) {
-    let response = surf::get(format!("http://{}/health_check", app))
+async fn health_check_works(app: App) {
+    let response = surf::get(format!("http://{}/health_check", app.address))
         .await
         .expect("Failed to execute request.");
 

@@ -1,11 +1,47 @@
-use std::net::SocketAddr;
+use std::{net::SocketAddr, time::Duration};
 
 use async_std::net::TcpListener;
+use chrono::{DateTime, Utc};
+use mongodb::{bson::doc, options::ClientOptions, Client, Database};
 use rstest::fixture;
-use z2p::run;
+use z2p::{configuration::DatabaseSettings, run};
+
+pub struct App {
+    pub address: SocketAddr,
+    pub db: Database,
+    pub db_cfg: DatabaseSettings,
+}
+
+fn start_db_container(name: &str, port: u16) -> docker::DockerResult<docker::Instance> {
+    let opts = docker::DockerOptions::default()
+        .name(&name)
+        .env("MONGO_INITDB_ROOT_USERNAME".to_owned(), "mongo".to_owned())
+        .env(
+            "MONGO_INITDB_ROOT_PASSWORD".to_owned(),
+            "password".to_owned(),
+        )
+        .port(port, 27017);
+    docker::Instance::run("mongo", Some(&opts))
+}
+
+const DEFAULT_DB_HOST_PORT: u16 = 27017;
 
 #[fixture]
-pub fn app() -> SocketAddr {
+pub fn db_container() -> &'static docker::Instance {
+    lazy_static::lazy_static! {
+        static ref DB: docker::Instance = {
+            let name = format!("z2p_tests_{}", DEFAULT_DB_HOST_PORT);
+            docker::running_container(&name).unwrap()
+                .unwrap_or_else( ||
+                        start_db_container(&name, DEFAULT_DB_HOST_PORT).unwrap()
+                )
+        };
+    };
+    &DB
+}
+
+#[fixture(cfg=configurations())]
+pub fn app(cfg: DatabaseSettings, _db_container: &docker::Instance) -> App {
     let listener = async_std::task::block_on(async {
         TcpListener::bind("127.0.0.1:0")
             .await
@@ -13,8 +49,226 @@ pub fn app() -> SocketAddr {
     });
 
     let address = listener.local_addr().expect("Cannot get server address");
+    let c = cfg.clone();
+    async_std::task::block_on(create_db(&c));
+    let c = cfg.clone();
+    async_std::task::spawn(async { run(c).await.listen(listener).await });
+    let db = async_std::task::block_on(db(&cfg));
+    App {
+        address,
+        db,
+        db_cfg: cfg,
+    }
+}
 
-    async_std::task::spawn(run(listener));
+fn now() -> DateTime<Utc> {
+    std::time::SystemTime::now().into()
+}
 
-    address
+fn testname() -> String {
+    std::thread::current().name().unwrap().to_string()
+}
+
+fn sanitize_db_name(name: impl AsRef<str>) -> String {
+    const MAX_DB_NAME_LEN: usize = 70;
+    const DB_START_NAME_LEN: usize = 20;
+    const DB_END_NAME_LEN: usize = 15;
+    let mut name = name.as_ref().replace(
+        &['/', '\\', '.', '“', '*', '<', '>', ':', '|', '?', '$'][..],
+        "_",
+    );
+    let l = name.len();
+    if l > MAX_DB_NAME_LEN {
+        let start = &name[0..DB_START_NAME_LEN];
+        let end = &name[(l - DB_END_NAME_LEN)..l];
+        name = format!("{}={}={}", start, now().timestamp_millis() % 60000, end);
+    }
+    name
+}
+
+pub fn configurations() -> DatabaseSettings {
+    let mut configurations =
+        z2p::configuration::get_configuration().expect("Failed to read configurations");
+    configurations.database.name = sanitize_db_name(testname());
+    configurations.database
+}
+
+async fn mongodb_client_options(url: &str) -> ClientOptions {
+    let mut client_options = ClientOptions::parse(&url)
+        .await
+        .expect("Cannot parse db connection string");
+    client_options.server_selection_timeout = Some(Duration::from_millis(5000));
+    client_options.connect_timeout = Some(Duration::from_millis(5000));
+
+    client_options
+}
+
+async fn create_db(cfg: &DatabaseSettings) {
+    let url = format!(
+        "mongodb://{}:{}@{}:{}",
+        cfg.username, cfg.password, cfg.host, cfg.port
+    );
+    let mut client_options = mongodb_client_options(&url).await;
+    client_options.app_name = Some("CreateDb".to_string());
+
+    let client = Client::with_options(client_options).expect("Cannot create db client");
+    let db = client.database(&cfg.name);
+
+    let collection = db.collection("test_entry__");
+
+    let doc = doc! { "test_name": testname(), "created": now() };
+
+    // Insert some documents into the "mydb.books" collection.
+    collection
+        .insert_one(doc, None)
+        .await
+        .expect("Cannot write new db");
+}
+
+async fn db(cfg: &DatabaseSettings) -> Database {
+    let mut client_options = mongodb_client_options(&cfg.connection_string()).await;
+    client_options.app_name = Some(testname());
+
+    Client::with_options(client_options)
+        .expect("Cannot create db client")
+        .database(&cfg.name)
+}
+
+pub mod docker {
+
+    use std::{collections::HashMap, process::Command};
+    use thiserror::Error;
+
+    #[derive(Error, Debug)]
+    pub enum DockerError {
+        #[error(
+            "Cannot create image '{name}' [ code: {code:?} stdout: '{stdout}'  stdout: '{stderr}'"
+        )]
+        CannotCreateImage {
+            name: String,
+            code: Option<i32>,
+            stdout: String,
+            stderr: String,
+        },
+
+        #[error("Cannot start instance : image '{image}' [ code: {code:?} stdout: '{stdout}'  stdout: '{stderr}'")]
+        CannotStartInstance {
+            image: String,
+            code: Option<i32>,
+            stdout: String,
+            stderr: String,
+        },
+
+        #[error("Command execution error")]
+        Exec(#[from] std::io::Error),
+
+        #[error("Command error")]
+        CmdErr(std::process::Output),
+
+        #[error("Unknow Error: '{0}'")]
+        Unknow(String),
+    }
+
+    pub type DockerResult<T> = Result<T, DockerError>;
+
+    #[derive(Debug, Clone, Default)]
+    pub struct DockerOptions {
+        name: Option<String>,
+        envs: HashMap<String, String>,
+        ports: HashMap<u16, u16>,
+    }
+
+    impl DockerOptions {
+        pub fn name(mut self, name: &str) -> Self {
+            let name = name.trim();
+            self.name = if !name.is_empty() {
+                Some(name.to_string())
+            } else {
+                None
+            };
+            self
+        }
+
+        pub fn env(mut self, key: String, value: String) -> Self {
+            self.envs.insert(key, value);
+            self
+        }
+
+        pub fn port(mut self, from: u16, to: u16) -> Self {
+            self.ports.insert(from, to);
+            self
+        }
+
+        fn add_args(&self, mut cmd: Command) -> Command {
+            if let Some(name) = &self.name {
+                cmd.args(&["--name", name]);
+            }
+            for (k, v) in &self.envs {
+                cmd.args(&["-e", &format!("{}={}", k, v)]);
+            }
+            for (f, t) in &self.ports {
+                cmd.args(&["-p", &format!("{}:{}", f, t)]);
+            }
+            cmd
+        }
+    }
+
+    pub struct Instance {
+        id: String,
+    }
+
+    impl Instance {
+        fn docker_run(options: Option<&DockerOptions>) -> Command {
+            let mut cmd = Command::new("docker");
+            cmd.arg("run");
+            cmd.arg("--rm");
+            if let Some(opts) = options {
+                cmd = dbg!(opts).add_args(cmd);
+            }
+            cmd
+        }
+
+        pub fn run(image: impl AsRef<str>, options: Option<&DockerOptions>) -> DockerResult<Self> {
+            let image = image.as_ref();
+            let mut cmd = Self::docker_run(options);
+            cmd.arg("-d").arg(image);
+            dbg!(cmd).output().map_err(|e| e.into()).and_then(|out| {
+                if out.status.success() {
+                    Ok(Self {
+                        id: String::from_utf8_lossy(&out.stdout).trim().to_owned(),
+                    })
+                } else {
+                    Err(DockerError::CannotStartInstance {
+                        image: image.to_owned(),
+                        code: out.status.code(),
+                        stdout: String::from_utf8_lossy(&out.stdout).to_string(),
+                        stderr: String::from_utf8_lossy(&out.stderr).to_string(),
+                    })
+                }
+            })
+        }
+    }
+
+    impl Drop for Instance {
+        fn drop(&mut self) {
+            let _ = Command::new("docker").arg("kill").arg(&self.id).output();
+        }
+    }
+
+    pub fn running_container(name: &str) -> DockerResult<Option<Instance>> {
+        let out = Command::new("docker")
+            .arg("ps")
+            .args(&["--filter", &format!("name={}", name)])
+            .arg("-q")
+            .output()?;
+        if out.status.code() != Some(0) {
+            return Err(DockerError::CmdErr(out));
+        }
+        let id = String::from_utf8_lossy(&out.stdout).trim().to_owned();
+        if id.len() > 0 {
+            Ok(Some(Instance { id }))
+        } else {
+            Ok(None)
+        }
+    }
 }
