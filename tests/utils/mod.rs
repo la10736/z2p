@@ -1,4 +1,8 @@
-use std::{net::SocketAddr, time::Duration};
+use std::{
+    net::SocketAddr,
+    sync::{Arc, Mutex, Weak},
+    time::Duration,
+};
 
 use async_std::net::TcpListener;
 use chrono::{DateTime, Utc};
@@ -10,9 +14,11 @@ pub struct App {
     pub address: SocketAddr,
     pub db: Database,
     pub db_cfg: DatabaseSettings,
+    #[allow(dead_code)]
+    db_container: Arc<docker::Container>,
 }
 
-fn start_db_container(name: &str, port: u16) -> docker::DockerResult<docker::Instance> {
+fn start_db_container(name: &str, port: u16) -> docker::DockerResult<docker::Container> {
     let opts = docker::DockerOptions::default()
         .name(&name)
         .env("MONGO_INITDB_ROOT_USERNAME".to_owned(), "mongo".to_owned())
@@ -21,27 +27,30 @@ fn start_db_container(name: &str, port: u16) -> docker::DockerResult<docker::Ins
             "password".to_owned(),
         )
         .port(port, 27017);
-    docker::Instance::run("mongo", Some(&opts))
+    docker::Container::run("mongo", Some(&opts))
 }
 
 const DEFAULT_DB_HOST_PORT: u16 = 27017;
 
 #[fixture]
-pub fn db_container() -> &'static docker::Instance {
+pub fn db_container() -> Arc<docker::Container> {
     lazy_static::lazy_static! {
-        static ref DB: docker::Instance = {
-            let name = format!("z2p_tests_{}", DEFAULT_DB_HOST_PORT);
-            docker::running_container(&name).unwrap()
-                .unwrap_or_else( ||
-                        start_db_container(&name, DEFAULT_DB_HOST_PORT).unwrap()
-                )
-        };
+        static ref DBREF: Mutex<Weak<docker::Container>> = Mutex::new(Weak::new());
     };
-    &DB
+    let mut weak = DBREF.lock().unwrap();
+    match weak.upgrade() {
+        Some(strong) => strong.clone(),
+        None => {
+            let name = format!("z2p_tests_{}", DEFAULT_DB_HOST_PORT);
+            let strong = Arc::new(start_db_container(&name, DEFAULT_DB_HOST_PORT).unwrap());
+            *weak = Arc::downgrade(&strong);
+            strong
+        }
+    }
 }
 
 #[fixture(cfg=configurations())]
-pub fn app(cfg: DatabaseSettings, _db_container: &docker::Instance) -> App {
+pub fn app(cfg: DatabaseSettings, db_container: Arc<docker::Container>) -> App {
     let listener = async_std::task::block_on(async {
         TcpListener::bind("127.0.0.1:0")
             .await
@@ -58,6 +67,7 @@ pub fn app(cfg: DatabaseSettings, _db_container: &docker::Instance) -> App {
         address,
         db,
         db_cfg: cfg,
+        db_container,
     }
 }
 
@@ -213,21 +223,11 @@ pub mod docker {
         }
     }
 
-    pub struct Instance {
+    pub struct Container {
         id: String,
     }
 
-    impl Instance {
-        fn docker_run(options: Option<&DockerOptions>) -> Command {
-            let mut cmd = Command::new("docker");
-            cmd.arg("run");
-            cmd.arg("--rm");
-            if let Some(opts) = options {
-                cmd = dbg!(opts).add_args(cmd);
-            }
-            cmd
-        }
-
+    impl Container {
         pub fn run(image: impl AsRef<str>, options: Option<&DockerOptions>) -> DockerResult<Self> {
             let image = image.as_ref();
             let mut cmd = Self::docker_run(options);
@@ -247,15 +247,25 @@ pub mod docker {
                 }
             })
         }
+
+        fn docker_run(options: Option<&DockerOptions>) -> Command {
+            let mut cmd = Command::new("docker");
+            cmd.arg("run");
+            cmd.arg("--rm");
+            if let Some(opts) = options {
+                cmd = dbg!(opts).add_args(cmd);
+            }
+            cmd
+        }
     }
 
-    impl Drop for Instance {
+    impl Drop for Container {
         fn drop(&mut self) {
             let _ = Command::new("docker").arg("kill").arg(&self.id).output();
         }
     }
 
-    pub fn running_container(name: &str) -> DockerResult<Option<Instance>> {
+    pub fn running_container(name: &str) -> DockerResult<Option<Container>> {
         let out = Command::new("docker")
             .arg("ps")
             .args(&["--filter", &format!("name={}", name)])
@@ -266,7 +276,7 @@ pub mod docker {
         }
         let id = String::from_utf8_lossy(&out.stdout).trim().to_owned();
         if id.len() > 0 {
-            Ok(Some(Instance { id }))
+            Ok(Some(Container { id }))
         } else {
             Ok(None)
         }
