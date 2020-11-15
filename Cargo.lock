@@ -2923,6 +2923,7 @@ name = "z2p"
 version = "0.1.0"
 dependencies = [
  "async-std",
+ "async-trait",
  "chrono",
  "config",
  "csv",

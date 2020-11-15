@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 #[derive(serde::Deserialize, Default, Clone, Debug)]
 pub struct Settings {
     pub database: DatabaseSettings,
@@ -12,6 +14,7 @@ pub struct DatabaseSettings {
     pub port: u16,
     pub host: String,
     pub name: String,
+    pub connection_timeout: Option<Duration>,
 }
 
 impl DatabaseSettings {

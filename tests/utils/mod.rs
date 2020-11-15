@@ -41,8 +41,10 @@ pub fn db_container() -> Arc<docker::Container> {
     match weak.upgrade() {
         Some(strong) => strong.clone(),
         None => {
+            eprintln!("Create new container");                
             let name = format!("z2p_tests_{}", DEFAULT_DB_HOST_PORT);
             let strong = Arc::new(start_db_container(&name, DEFAULT_DB_HOST_PORT).unwrap());
+            eprintln!("Created new container {:?}", strong);                
             *weak = Arc::downgrade(&strong);
             strong
         }
@@ -223,6 +225,7 @@ pub mod docker {
         }
     }
 
+    #[derive(Debug)]
     pub struct Container {
         id: String,
     }
@@ -262,6 +265,7 @@ pub mod docker {
     impl Drop for Container {
         fn drop(&mut self) {
             let _ = Command::new("docker").arg("kill").arg(&self.id).output();
+            eprintln!("Destroy container {}", &self.id);                    
         }
     }
 

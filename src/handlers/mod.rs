@@ -3,3 +3,5 @@ pub(crate) use subscriptions::subscriptions;
 
 mod health_check;
 mod subscriptions;
+#[cfg(test)]
+pub mod test;
