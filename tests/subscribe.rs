@@ -13,8 +13,8 @@ mod subscribe {
 
     use surf::Response;
 
-    async fn do_request(app: &SocketAddr, body: &str) -> Response {
-        surf::post(format!("http://{}/subscriptions", app))
+    async fn do_request(address: &SocketAddr, body: &str) -> Response {
+        surf::post(format!("http://{}/subscriptions", address))
             .header("Content-Type", "application/x-www-form-urlencoded")
             .body(body)
             .send()
