@@ -232,7 +232,7 @@ pub mod docker {
             let image = image.as_ref();
             let mut cmd = Self::docker_run(options);
             cmd.arg("-d").arg(image);
-            dbg!(cmd).output().map_err(|e| e.into()).and_then(|out| {
+            cmd.output().map_err(|e| e.into()).and_then(|out| {
                 if out.status.success() {
                     Ok(Self {
                         id: String::from_utf8_lossy(&out.stdout).trim().to_owned(),
@@ -253,7 +253,7 @@ pub mod docker {
             cmd.arg("run");
             cmd.arg("--rm");
             if let Some(opts) = options {
-                cmd = dbg!(opts).add_args(cmd);
+                cmd = opts.add_args(cmd);
             }
             cmd
         }
