@@ -71,8 +71,8 @@ impl State {
         let client_options = mongodb::options::ClientOptions::parse(&cfg.connection_string())
             .await
             .map(|mut opts| {
-                opts.server_selection_timeout = cfg.connection_timeout.clone();
-                opts.connect_timeout = cfg.connection_timeout.clone();
+                opts.server_selection_timeout = cfg.connection_timeout;
+                opts.connect_timeout = cfg.connection_timeout;
                 opts
             })?;
         let mongo = mongodb::Client::with_options(client_options)?;
