@@ -30,7 +30,7 @@ fn start_db_container(name: &str, port: u16) -> docker::DockerResult<docker::Con
     docker::Container::run("mongo", Some(&opts))
 }
 
-const DEFAULT_DB_HOST_PORT: u16 = 27017;
+const DEFAULT_DB_HOST_PORT: u16 = 37017;
 
 #[fixture]
 pub fn db_container() -> Arc<docker::Container> {
@@ -102,6 +102,7 @@ pub fn configurations() -> DatabaseSettings {
     let mut configurations =
         z2p::configuration::get_configuration().expect("Failed to read configurations");
     configurations.database.name = sanitize_db_name(testname());
+    configurations.database.port = DEFAULT_DB_HOST_PORT;
     configurations.database
 }
 
