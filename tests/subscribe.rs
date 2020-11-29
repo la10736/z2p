@@ -38,7 +38,7 @@ mod subscribe {
     }
 
     #[rstest]
-    async fn should_accept_a_valid_forma_data(app: App) {
+    async fn should_accept_a_valid_form_data(app: App) {
         let response = do_request(
             &app.address,
             "name=De%20Domenico&email=antonio_de_domenico%40gmail.com",

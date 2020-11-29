@@ -8,7 +8,9 @@ use async_std::net::TcpListener;
 use chrono::{DateTime, Utc};
 use mongodb::{bson::doc, options::ClientOptions, Client, Database};
 use rstest::fixture;
-use z2p::{configuration::DatabaseSettings, run};
+use z2p::{
+    configuration::DatabaseSettings, run, telemetry::get_subscriber, telemetry::init_subscriber,
+};
 
 pub struct App {
     pub address: SocketAddr,
@@ -51,8 +53,20 @@ pub fn db_container() -> Arc<docker::Container> {
     }
 }
 
+#[fixture]
+pub fn tracing() {
+    lazy_static::lazy_static! {
+        static ref SUBSCRIBER: () = {
+            let filter = if std::env::var("TEST_LOG").is_ok() { "debug" } else { "" };
+            let subscriber = get_subscriber("test", filter);
+            init_subscriber(subscriber);
+        };
+    }
+    *SUBSCRIBER
+}
+
 #[fixture(cfg=configurations())]
-pub fn app(cfg: DatabaseSettings, db_container: Arc<docker::Container>) -> App {
+pub fn app(cfg: DatabaseSettings, db_container: Arc<docker::Container>, _tracing: ()) -> App {
     let listener = async_std::task::block_on(async {
         TcpListener::bind("127.0.0.1:0")
             .await

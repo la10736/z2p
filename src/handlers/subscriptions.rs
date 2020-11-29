@@ -1,9 +1,10 @@
 use mongodb::bson::doc;
 use tide::{convert::Deserialize, Request, StatusCode};
+use tracing::{error, info};
 
-use crate::startup::{
+use crate::{
     repository::{User, UsersRepository},
-    StateTrait,
+    state::StateTrait,
 };
 
 #[derive(Deserialize, Debug)]
@@ -21,19 +22,28 @@ impl Into<User> for Subscribe {
     }
 }
 
+#[tracing::instrument(name = "Adding a new subscriber", skip(req))]
 pub(crate) async fn subscriptions<S: StateTrait>(mut req: Request<S>) -> tide::Result {
-    Ok(match req.body_form::<Subscribe>().await {
-        Ok(subscribe) => match req
-            .state()
-            .users_repository()
-            .create(subscribe.into())
-            .await
-        {
-            Ok(_) => tide::Response::new(StatusCode::Ok),
-            Err(_) => tide::Response::new(StatusCode::ServiceUnavailable),
-        },
-        Err(_) => tide::Response::new(400),
-    })
+    let subscriber = req.body_form::<Subscribe>().await.map_err(|mut e| {
+        e.set_status(StatusCode::BadRequest);
+        e
+    })?;
+    let subscribe_result = req
+        .state()
+        .users_repository()
+        .create(subscriber.into())
+        .await;
+    Ok(match subscribe_result {
+        Ok(_) => {
+            info!("New subcriber saved");
+            StatusCode::Ok
+        }
+        Err(e) => {
+            error!("Failed to save suscriber: {:?}", e);
+            StatusCode::ServiceUnavailable
+        }
+    }
+    .into())
 }
 
 #[cfg(test)]

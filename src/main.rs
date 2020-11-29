@@ -1,8 +1,11 @@
+use z2p::telemetry::{get_subscriber, init_subscriber};
+
 #[cfg(not(tarpaulin_include))]
 #[async_std::main]
 async fn main() -> tide::Result<()> {
-    let configs = z2p::configuration::get_configuration().expect("Failed to read configuration");
+    init_subscriber(get_subscriber("z2p", "info"));
 
+    let configs = z2p::configuration::get_configuration().expect("Failed to read configuration");
     let host = format!("{}:{}", configs.application_host, configs.application_port);
     z2p::run(configs.database)
         .await

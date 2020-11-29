@@ -1,6 +1,6 @@
 use crate::{
     configuration::DatabaseSettings,
-    startup::{State, StateTrait},
+    state::{State, StateTrait},
 };
 
 pub(crate) struct AppBuilder<S: StateTrait>(tide::Server<S>);
