@@ -1,14 +1,38 @@
-# We use the latest Rust stable release as base image
-FROM rust:1.47
+# Base Rust
+FROM rust:1.47 as base_rust
 
-# Let's switch our working directory to `app` (equivalent to `cd app`)
-# The `app` folder will be created for us by Docker in case it does not 
-# exist already.
-WORKDIR app
-# Copy all files from our working environment to our Docker image 
+# Chef image
+FROM base_rust as chef
+RUN cargo install cargo-chef
+
+# Planner Stage
+FROM chef as planner
+WORKDIR /app
 COPY . .
-# Let's build our binary!
-# We'll use the release profile to make it faaaast
+RUN cargo chef prepare --recipe-path recipe.json
+
+# Cacher Stage
+FROM chef as cacher
+WORKDIR /app
+
+COPY --from=planner /app/recipe.json recipe.json
+RUN cargo chef cook --release --recipe-path recipe.json
+
+# Builder Stage
+FROM base_rust as builder
+
+WORKDIR /app
+# Copy over the cached dependencies
+COPY --from=cacher /app/target target
+COPY --from=cacher /usr/local/cargo /usr/local/cargo
+COPY . .
 RUN cargo build --release
-# When `docker run` is executed, launch the binary!
-ENTRYPOINT ["./target/release/z2p"]
+
+# Runtime Stage
+FROM debian:buster-slim as runtime
+WORKDIR /app
+COPY --from=builder /app/target/release/app app
+
+COPY configuration configuration
+ENV APP_ENVIRORMENT production
+ENTRYPOINT ["./app"]

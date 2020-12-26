@@ -6,7 +6,7 @@ async fn main() -> tide::Result<()> {
     init_subscriber(get_subscriber("z2p", "info"));
 
     let configs = z2p::configuration::get_configuration().expect("Failed to read configuration");
-    let host = format!("{}:{}", configs.application_host, configs.application_port);
+    let host = format!("{}:{}", configs.application.host, configs.application.port);
     z2p::run(configs.database)
         .await
         .listen(host)
