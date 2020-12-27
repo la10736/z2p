@@ -1,3 +1,4 @@
+use serde_with::{serde_as, DisplayFromStr, DurationSecondsWithFrac};
 use std::{convert::TryInto, time::Duration};
 
 #[derive(serde::Deserialize, Default, Clone, Debug)]
@@ -6,19 +7,25 @@ pub struct Settings {
     pub application: ApplicationSettings,
 }
 
-#[derive(serde::Deserialize, Default, Clone, Debug)]
+#[serde_as]
+#[derive(serde::Deserialize, Default, Clone, Debug, PartialEq)]
 pub struct ApplicationSettings {
     pub host: String,
+    #[serde_as(as = "DisplayFromStr")]
     pub port: u16,
 }
 
-#[derive(serde::Deserialize, Default, Clone, Debug)]
+#[serde_as]
+#[derive(serde::Deserialize, Default, Clone, Debug, PartialEq)]
 pub struct DatabaseSettings {
     pub username: String,
     pub password: String,
+    #[serde_as(as = "DisplayFromStr")]
     pub port: u16,
     pub host: String,
     pub name: String,
+    #[serde_as(as = "Option<DurationSecondsWithFrac<String>>")]
+    #[serde(default)]
     pub connection_timeout: Option<Duration>,
 }
 
@@ -77,4 +84,101 @@ pub fn get_configuration() -> Result<Settings, config::ConfigError> {
     settings.merge(config::Environment::with_prefix("app").separator("__"))?;
 
     settings.try_into()
+}
+
+#[cfg(test)]
+mod test {
+    use rstest::rstest;
+    use unindent::Unindent;
+
+    use super::*;
+
+    #[rstest(yaml, expected,
+        case::port_as_string(r#"
+        ---
+          host: 0.0.0.0
+          port: "1234"
+        "#.unindent(),
+        ApplicationSettings {
+            host: "0.0.0.0".to_owned(),
+            port: 1234
+        }
+        ),
+        case::port_as_number(r#"
+        ---
+          host: 0.0.0.0
+          port: 1234
+        "#.unindent(),
+        ApplicationSettings {
+            host: "0.0.0.0".to_owned(),
+            port: 1234
+        }
+        ),
+    )]
+    fn deserialize_applications_settings(yaml: String, expected: ApplicationSettings) {
+        let app = serde_yaml::from_str(&yaml).unwrap();
+
+        assert_eq!(expected, app)
+    }
+
+    #[rstest(yaml, expected,
+        case::happy(r#"
+        ---
+          username: user
+          password: pwd
+          port: 1234
+          host: 127.0.0.1
+          name: name
+          connection_timeout: 0.345
+        "#.unindent(),
+        DatabaseSettings {
+            username: "user".to_owned(),
+            password: "pwd".to_owned(),
+            port: 1234,
+            host: "127.0.0.1".to_owned(),
+            name: "name".to_owned(),
+            connection_timeout: Some(Duration::from_millis(345)),
+        }
+        ),
+        case::no_connection_timeout(r#"
+        ---
+          username: user
+          password: pwd
+          port: 1234
+          host: 127.0.0.1
+          name: name
+        "#.unindent(),
+        DatabaseSettings {
+            username: "user".to_owned(),
+            password: "pwd".to_owned(),
+            port: 1234,
+            host: "127.0.0.1".to_owned(),
+            name: "name".to_owned(),
+            connection_timeout: None,
+        }
+        ),
+        case::port_as_string(r#"
+        ---
+          username: user
+          password: pwd
+          port: "1234"
+          host: 127.0.0.1
+          name: name
+          connection_timeout: 3
+        "#.unindent(),
+        DatabaseSettings {
+            username: "user".to_owned(),
+            password: "pwd".to_owned(),
+            port: 1234,
+            host: "127.0.0.1".to_owned(),
+            name: "name".to_owned(),
+            connection_timeout: Some(Duration::from_secs(3)),
+        }
+        ),
+    )]
+    fn deserialize_db_settings(yaml: String, expected: DatabaseSettings) {
+        let app = serde_yaml::from_str(&yaml).unwrap();
+
+        assert_eq!(expected, app)
+    }
 }
