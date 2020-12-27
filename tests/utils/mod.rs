@@ -20,7 +20,11 @@ pub struct App {
     db_container: Arc<docker::Container>,
 }
 
-fn start_db_container(name: &str, port: u16) -> docker::DockerResult<docker::Container> {
+fn start_db_container(
+    name: &str,
+    port: u16,
+    timeout: Duration,
+) -> docker::DockerResult<docker::Container> {
     let opts = docker::DockerOptions::default()
         .name(&name)
         .env("MONGO_INITDB_ROOT_USERNAME".to_owned(), "mongo".to_owned())
@@ -29,7 +33,20 @@ fn start_db_container(name: &str, port: u16) -> docker::DockerResult<docker::Con
             "password".to_owned(),
         )
         .port(port, 27017);
-    docker::Container::run("mongo", Some(&opts))
+    let mut container_result = docker::Container::run("mongo", Some(&opts));
+    let end = std::time::SystemTime::now() + timeout;
+    while std::time::SystemTime::now() < end
+        && match container_result.as_ref() {
+            Err(docker::DockerError::CannotStartInstance { stderr, .. }) => {
+                stderr.contains("is already in use by container")
+            }
+            _ => false,
+        }
+    {
+        std::thread::sleep(core::time::Duration::from_millis(50));
+        container_result = docker::Container::run("mongo", Some(&opts));
+    }
+    container_result
 }
 
 const DEFAULT_DB_HOST_PORT: u16 = 37017;
@@ -40,15 +57,25 @@ pub fn db_container() -> Arc<docker::Container> {
         static ref DBREF: Mutex<Weak<docker::Container>> = Mutex::new(Weak::new());
     };
     let mut weak = DBREF.lock().unwrap();
-    match weak.upgrade() {
-        Some(strong) => strong.clone(),
-        None => {
-            eprintln!("Create new container");
-            let name = format!("z2p_tests_{}", DEFAULT_DB_HOST_PORT);
-            let strong = Arc::new(start_db_container(&name, DEFAULT_DB_HOST_PORT).unwrap());
-            eprintln!("Created new container {:?}", strong);
-            *weak = Arc::downgrade(&strong);
-            strong
+    loop {
+        match weak.upgrade() {
+            // Some(strong) => strong.clone(),
+            Some(_strong) => {}
+            None => {
+                eprintln!("Create new container");
+                let name = format!("z2p_tests_{}", DEFAULT_DB_HOST_PORT);
+                let strong = Arc::new(
+                    start_db_container(
+                        &name,
+                        DEFAULT_DB_HOST_PORT,
+                        std::time::Duration::from_secs(5),
+                    )
+                    .unwrap(),
+                );
+                eprintln!("Created new container {:?}", strong);
+                *weak = Arc::downgrade(&strong);
+                return strong;
+            }
         }
     }
 }
